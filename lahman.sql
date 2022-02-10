@@ -59,7 +59,7 @@ WITH
 	strikeouts AS (
 	SELECT 
 	yearid,
-	ROUND(AVG(so/g)::numeric,2) AS strikeouts_per_game
+	SUM(so)/SUM(g)::numeric AS strikeouts_per_game
 	FROM teams
 	WHERE yearid >= 1920
 	GROUP BY 1
@@ -75,10 +75,152 @@ LEFT JOIN strikeouts
 GROUP BY lower, upper
 ORDER BY lower DESC
 ;
+--increase
 
-4. Find the player who had the most success stealing bases in 2016, where __success__ is measured as the percentage of stolen base attempts which are successful. (A stolen base attempt results either in a stolen base or being caught stealing.) Consider only players who attempted _at least_ 20 stolen bases. Report the players' names, number of stolen bases, number of attempts, and stolen base percentage.
+WITH 
+	bins AS(
+	SELECT generate_series(1920,2019, 10) AS lower,
+		   generate_series(1929, 2019, 10) AS upper),
+		   
+	homeruns AS (
+	SELECT 
+	yearid,
+	SUM(hr)/SUM(g)::numeric AS homeruns_per_game
+	FROM teams
+	WHERE yearid >= 1920
+	GROUP BY 1
+	ORDER BY 1 desc)
+SELECT 
+	lower,
+	upper, 
+	ROUND(AVG(homeruns_per_game), 2) AS homeruns_per_game
+FROM bins 
+LEFT JOIN homeruns
+	ON homeruns.yearid >= lower
+	AND homeruns.yearid <= upper
+GROUP BY lower, upper
+ORDER BY lower DESC
+;
+--increase
 
-5. From 1970 to 2016, what is the largest number of wins for a team that did not win the world series? What is the smallest number of wins for a team that did win the world series? Doing this will probably result in an unusually small number of wins for a world series champion; determine why this is the case. Then redo your query, excluding the problem year. How often from 1970 to 2016 was it the case that a team with the most wins also won the world series? What percentage of the time?
+/* 4. Find the player who had the most success stealing bases in 2016, where __success__ is measured as the 
+percentage of stolen base attempts which are successful. (A stolen base attempt results either in a stolen base or 
+being caught stealing.) Consider only players who attempted _at least_ 20 stolen bases. Report the players' names, 
+number of stolen bases, number of attempts, and stolen base percentage.
+*/
+
+SELECT 
+	namefirst||' '||namelast AS name,
+	sb, 
+	sb+cs AS num_attempts,
+	ROUND(sb*100.00/(sb+cs),2) AS sb_pct
+FROM Batting
+LEFT JOIN people
+USING (playerid)
+WHERE yearid = 2016
+	AND (sb+cs)>=20
+ORDER BY sb_pct DESC
+LIMIT 1;
+-- Chris Owings 91.3%
+
+/*5. From 1970 to 2016, what is the largest number of wins for a team that did not win the world series? 
+What is the smallest number of wins for a team that did win the world series? Doing this will probably result in 
+an unusually small number of wins for a world series champion; determine why this is the case. Then redo your query,
+excluding the problem year. How often from 1970 to 2016 was it the case that a team with the most wins also won 
+the world series? What percentage of the time?
+*/
+WITH 
+	ws_champion AS (
+	SELECT *
+	FROM seriespost
+	WHERE yearid BETWEEN 1970 AND 2016
+	 AND round = 'WS'
+),
+	wins AS (
+	SELECT *
+	FROM teams
+	WHERE yearid BETWEEN 1970 AND 2016
+	)
+SELECT wins.yearid, teamid, w
+FROM wins
+LEFT JOIN ws_champion
+ON ws_champion.yearid = wins.yearid
+	AND ws_champion.teamidwinner = wins.teamid
+WHERE ws_champion.teamidwinner IS NULL
+ORDER BY w DESC
+LIMIT 1;
+--2001,SEA, 116 WINS
+
+WITH 
+	ws_champion AS (
+	SELECT *
+	FROM seriespost
+	WHERE yearid BETWEEN 1970 AND 2016
+	 AND round = 'WS'
+),
+	wins AS (
+	SELECT *
+	FROM teams
+	WHERE yearid BETWEEN 1970 AND 2016
+	)
+SELECT wins.yearid, teamid, w
+FROM wins
+INNER JOIN ws_champion
+ON ws_champion.yearid = wins.yearid
+	AND ws_champion.teamidwinner = wins.teamid
+ORDER BY w
+LIMIT 1;
+-- 1981, LAN, 63 wins due to strike-shortened season
+
+WITH 
+	ws_champion AS (
+	SELECT *
+	FROM seriespost
+	WHERE yearid BETWEEN 1970 AND 2016
+	 AND round = 'WS'
+),
+	wins AS (
+	SELECT *
+	FROM teams
+	WHERE yearid BETWEEN 1970 AND 2016
+	)
+SELECT wins.yearid, teamid, w
+FROM wins
+INNER JOIN ws_champion
+ON ws_champion.yearid = wins.yearid
+	AND ws_champion.teamidwinner = wins.teamid
+WHERE wins.yearid <>1981
+ORDER BY w 
+LIMIT 1;
+-- 2006, SLN, 83 wins
+
+WITH 
+	ws_champion AS (
+	SELECT *
+	FROM seriespost
+	WHERE yearid BETWEEN 1970 AND 2016
+	 AND round = 'WS'
+),
+
+	most_wins_per_year AS (
+	SELECT yearid, teamid, w
+	FROM teams
+	INNER JOIN (
+		SELECT yearid, MAX(w) w
+		FROM teams
+		WHERE yearid BETWEEN 1970 AND 2016
+		GROUP BY yearid
+		ORDER BY 1) AS most_wins_per_year
+	USING (yearid, w)
+	)
+SELECT 
+	COUNT(round) AS most_win_champion,
+	ROUND(COUNT(round)*100.00/COUNT(*),2) AS most_win_champion_pct
+FROM most_wins_per_year AS m
+LEFT JOIN ws_champion AS w
+ON m.yearid = w.yearid
+	AND m.teamid = w.teamidwinner
+--12 teams with most wins in a season won WS champion. pct 22.64%
 
 6. Which managers have won the TSN Manager of the Year award in both the National League (NL) and the American League (AL)? Give their full name and the teams that they were managing when they won the award.
 
