@@ -2,18 +2,6 @@
 - this data has been made available [online](http://www.seanlahman.com/baseball-archive/statistics/) by Sean Lahman
 - you can find a data dictionary [here](http://www.seanlahman.com/files/database/readme2016.txt)
 */
-SELECT * 
-FROM people
-LIMIT 5;
-
-SELECT * 
-FROM collegeplaying
-WHERE schoolid LIKE '%van%';
-
-SELECT * 
-FROM schools
-where schoolid = 'vandy';
-
 
 --1. Find all players in the database who played at Vanderbilt University. Create a list showing each player's first
 --and last names as well as the total salary they earned in the major leagues. Sort this list in descending order 
@@ -23,7 +11,15 @@ SELECT
 	namelast,
 	SUM(salary)
 FROM people
-LEFT JOIN collegeplaying
+LEFT JOIN (
+	SELECT playerid, schoolid
+	FROM collegeplaying
+	WHERE schoolid = 'vandy'
+	UNION
+	SELECT playerid, schoolid
+	FROM collegeplaying
+	WHERE schoolid = 'vandy'
+) AS collegeplaying
 USING (playerid)
 LEFT JOIN salaries
 USING (playerid)
@@ -32,6 +28,45 @@ WHERE schoolid = 'vandy'
 GROUP BY namefirst, namelast, playerid
 ORDER BY 3 DESC
 LIMIT 1;
+-- David Price, 81851296
+
+-- Vamsi
+SELECT
+	name,
+	SUM(salary) AS salary
+FROM
+	(SELECT 
+		DISTINCT namefirst || ' ' || namelast AS name,
+		salary
+	FROM people
+	JOIN salaries
+	USING(playerid)
+	JOIN collegeplaying
+	USING(playerid)
+	WHERE schoolid = 'vandy' AND salary IS NOT null
+	ORDER BY salary DESC) AS sub
+GROUP BY name
+ORDER BY salary DESC;
+
+--Joshua
+SELECT 
+	namefirst, 
+	namelast, 
+	SUM(salary)::numeric::money AS total_salary
+FROM people
+INNER JOIN salaries
+	USING (playerid)
+WHERE playerid IN
+	(
+	SELECT playerid
+	FROM collegeplaying
+	WHERE schoolid = 'vandy'
+	)
+GROUP BY namefirst, namelast
+ORDER BY total_salary DESC;
+
+--Bryan
+
 
 --2. Using the fielding table, group players into three groups based on their position: label players with position 
 --OF as "Outfield", those with position "SS", "1B", "2B", and "3B" as "Infield", and those with position "P" or "C" 
@@ -46,6 +81,43 @@ FROM fielding
 WHERE yearid = 2016
 GROUP BY position_group
 ORDER BY 2 DESC;
+
+--Ross
+WITH cteOutfield AS
+(
+	SELECT 'Outfield' AS position_group, 
+		SUM(po) AS putouts
+	FROM fielding
+	WHERE pos = 'OF'
+		AND yearid = 2016
+),
+cteInfield AS
+(
+	SELECT 'Infield' AS position_group, 
+		SUM(po) AS putouts
+	FROM fielding
+	WHERE pos IN
+	('SS', '1B', '2B', '3B')
+		AND yearid = 2016	
+),
+cteBattery AS 
+(
+	SELECT 'Battery' AS position_group, 
+		SUM(po) AS putouts
+	FROM fielding
+	WHERE pos IN
+	('P', 'C')
+		AND yearid = 2016	
+)
+SELECT *
+FROM cteOutfield
+UNION
+SELECT *
+FROM cteInfield
+UNION
+SELECT *
+FROM cteBattery
+ORDER BY putouts DESC;
 
 --3. Find the average number of strikeouts per game by decade since 1920. Round the numbers you report to 2 decimal 
 --places. Do the same for home runs per game. Do you see any trends? (Hint: For this question, you might find it 
@@ -67,7 +139,7 @@ WITH
 SELECT 
 	lower,
 	upper, 
-	ROUND(AVG(strikeouts_per_game), 2) AS strikeouts_per_game
+	ROUND(AVG(strikeouts_per_game)*2, 2) AS strikeouts_per_game
 FROM bins 
 LEFT JOIN strikeouts
 	ON strikeouts.yearid >= lower
@@ -76,6 +148,44 @@ GROUP BY lower, upper
 ORDER BY lower DESC
 ;
 --increase
+
+--Bryan
+select round(avg(so / g), 2)                                                avg_so_per_g,
+       extract(decade from concat(yearid, '-01-01 00:00:00')::timestamp) * 10 as decade
+from teams
+where yearid >= 1920
+group by decade
+order by decade;
+--
+
+--Joshua
+WITH so_hr_decades AS (
+	SELECT 
+		yearid,
+		teamid,
+		g,
+		FLOOR(yearid/10)*10 AS decade,
+		so,
+		hr
+	FROM teams
+)
+SELECT
+	decade,
+	ROUND(SUM(so)*2.0/(SUM(g)), 2) AS so_per_game,
+	ROUND(SUM(hr)*2.0/(SUM(g)), 2) AS hr_per_game
+FROM so_hr_decades
+GROUP BY decade
+ORDER BY decade;
+
+--Habee
+SELECT TRUNC(YEARID, -1) AS DECADE,
+	ROUND(SUM(SO) * 2.0 / SUM(G), 2) AS STRIKEOUTS_PER_GAME,
+	ROUND(SUM(HR) * 2.0 / SUM(G), 2) AS HOMERUNS_PER_GAME
+FROM TEAMS
+WHERE YEARID >= 1920
+GROUP BY DECADE
+ORDER BY DECADE;
+
 
 WITH 
 	bins AS(
@@ -122,6 +232,18 @@ WHERE yearid = 2016
 ORDER BY sb_pct DESC
 LIMIT 1;
 -- Chris Owings 91.3%
+
+--Vamsi
+SELECT 
+	namefirst || ' ' || namelast AS name,
+	sb AS stolen_bases,
+	sb + cs AS attempts,
+	ROUND(sb::numeric / (sb::numeric + cs::numeric), 2) AS stolen_base_pct
+FROM batting
+LEFT JOIN people
+USING(playerid)
+WHERE yearid = 2016 AND sb >= 20
+ORDER BY stolen_base_pct DESC;
 
 /*5. From 1970 to 2016, what is the largest number of wins for a team that did not win the world series? 
 What is the smallest number of wins for a team that did win the world series? Doing this will probably result in 
@@ -200,8 +322,7 @@ WITH
 	FROM seriespost
 	WHERE yearid BETWEEN 1970 AND 2016
 	 AND round = 'WS'
-),
-
+	),
 	most_wins_per_year AS (
 	SELECT yearid, teamid, w
 	FROM teams
@@ -215,16 +336,110 @@ WITH
 	)
 SELECT 
 	COUNT(round) AS most_win_champion,
-	ROUND(COUNT(round)*100.00/COUNT(*),2) AS most_win_champion_pct
+	ROUND(COUNT(round)*100.00/COUNT(DISTINCT m.yearid),2) AS most_win_champion_pct
 FROM most_wins_per_year AS m
 LEFT JOIN ws_champion AS w
 ON m.yearid = w.yearid
 	AND m.teamid = w.teamidwinner
---12 teams with most wins in a season won WS champion. pct 22.64%
+--12 teams with most wins in a season won WS champion. pct 25.53%
 
-6. Which managers have won the TSN Manager of the Year award in both the National League (NL) and the American League (AL)? Give their full name and the teams that they were managing when they won the award.
+--Ross
+WITH cteYearWins AS
+(
+	SELECT DISTINCT yearid,
+		MAX(W) AS maxwins,
+		COUNT(*) OVER() AS maxwin_row_cnt
+	FROM teams
+	WHERE (yearid >= 1970
+			AND yearid <= 2016)	
+		AND yearid <> 1981	
+	GROUP BY yearid
+),
+cteWSWins AS
+(
+	SELECT DISTINCT t.yearid,
+		t.name,
+		t.W,
+		t.WSWin,
+		cyw.maxwin_row_cnt AS maxwin_rows
+	--	, cyw.maxwins
+	FROM teams t
+		INNER JOIN cteYearWins cyw
+			ON t.yearid = cyw.yearid
+			AND t.W = cyw.maxwins
+	WHERE (t.yearid >= 1970
+			AND t.yearid <= 2016)
+		AND t.yearid <> 1981
+		AND t.WSWin = 'Y'
+--	GROUP BY 1, 2, 3, 4
+	ORDER BY t.yearid
+)
+SELECT yearid,
+	name,
+	W,
+	(100.00 * COUNT(*) OVER() / maxwin_rows) AS pct
+FROM cteWSWins;
 
-7. Which pitcher was the least efficient in 2016 in terms of salary / strikeouts? Only consider pitchers who started at least 10 games (across all teams). Note that pitchers often play for more than one team in a season, so be sure that you are counting all stats for each player.
+/*6. Which managers have won the TSN Manager of the Year award in both the National League (NL) and the American 
+League (AL)? Give their full name and the teams that they were managing when they won the award.
+*/
+WITH
+	manager_award_nl AS(
+	SELECT *
+	FROM AwardsManagers
+	WHERE awardid = 'TSN Manager of the Year'
+		AND lgid = 'NL'
+	),
+	manager_award_al AS (
+	SELECT *
+	FROM AwardsManagers
+	WHERE awardid = 'TSN Manager of the Year'
+		AND lgid = 'AL'
+	)
+SELECT 
+	namefirst ||' '|| namelast AS name,
+	m.yearid,
+	m.teamid
+FROM manager_award_nl nl
+INNER JOIN manager_award_al al
+USING (playerid)
+LEFT JOIN people p
+USING(playerid)
+LEFT JOIN managers m
+ON  nl.yearid = m.yearid AND nl.playerid = m.playerid OR
+	al.yearid = m.yearid AND al.playerid = m.playerid
+UNION
+SELECT 
+	namefirst ||' '|| namelast AS name,
+	m.yearid,
+	m.teamid
+FROM manager_award_nl nl
+INNER JOIN manager_award_al al
+USING (playerid)
+LEFT JOIN people p
+USING(playerid)
+LEFT JOIN managers m
+ON  nl.yearid = m.yearid AND nl.playerid = m.playerid OR
+	al.yearid = m.yearid AND al.playerid = m.playerid
+ORDER BY name
+
+/*7. Which pitcher was the least efficient in 2016 in terms of salary / strikeouts? Only consider pitchers who 
+started at least 10 games (across all teams). Note that pitchers often play for more than one team in a season, 
+so be sure that you are counting all stats for each player.
+*/
+SELECT 
+	namefirst||' '||namelast name,
+	ROUND((AVG(salary)/SUM(so))::numeric,2) salary_per_so
+FROM pitching p
+INNER JOIN people pl
+USING (playerid)
+INNER JOIN salaries s
+USING (playerid)
+WHERE p.yearid = 2016
+	AND gs>=10
+GROUP BY name, p.yearid, p.playerid
+ORDER BY 2 DESC;
+--
 
 8. Find all players who have had at least 3000 career hits. Report those players' names, total number of hits, and the year they were inducted into the hall of fame (If they were not inducted into the hall of fame, put a null in that column.) Note that a player being inducted into the hall of fame is indicated by a 'Y' in the **inducted** column of the halloffame table.
 
