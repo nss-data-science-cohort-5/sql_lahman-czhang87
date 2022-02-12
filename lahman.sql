@@ -336,12 +336,12 @@ WITH
 	)
 SELECT 
 	COUNT(round) AS most_win_champion,
-	ROUND(COUNT(round)*100.00/COUNT(DISTINCT m.yearid),2) AS most_win_champion_pct
+	ROUND(COUNT(round)*100.00/COUNT(m.yearid),2) AS most_win_champion_pct
 FROM most_wins_per_year AS m
 LEFT JOIN ws_champion AS w
 ON m.yearid = w.yearid
 	AND m.teamid = w.teamidwinner
---12 teams with most wins in a season won WS champion. pct 25.53%
+--12 teams with most wins in a season won WS champion. pct 22.64%
 
 --Ross
 WITH cteYearWins AS
@@ -441,10 +441,93 @@ GROUP BY name, p.yearid, p.playerid
 ORDER BY 2 DESC;
 --
 
-8. Find all players who have had at least 3000 career hits. Report those players' names, total number of hits, and the year they were inducted into the hall of fame (If they were not inducted into the hall of fame, put a null in that column.) Note that a player being inducted into the hall of fame is indicated by a 'Y' in the **inducted** column of the halloffame table.
+/*8. Find all players who have had at least 3000 career hits. Report those players' names, total number of hits, 
+and the year they were inducted into the hall of fame (If they were not inducted into the hall of fame, put a null 
+in that column.) Note that a player being inducted into the hall of fame is indicated by a 'Y' in the **inducted** 
+column of the halloffame table.
+*/
+WITH 
+	career_hits AS (
+	SELECT playerid, SUM(h) AS career_hits
+	FROM batting
+	LEFT JOIN halloffame
+	USING (playerid)
+	GROUP BY playerid
+	HAVING SUM(h) >=3000
+),
+	hof_inducted AS (
+	SELECT*
+	FROM halloffame
+	WHERE inducted = 'Y')
+SELECT
+	namefirst||' '||namelast name,
+	career_hits,
+	h.yearid hof_year
+FROM career_hits 
+LEFT JOIN people 
+USING (playerid)
+LEFT JOIN hof_inducted h
+USING (playerid) 
+ORDER BY career_hits DESC
 
-9. Find all players who had at least 1,000 hits for two different teams. Report those players' full names.
+--9. Find all players who had at least 1,000 hits for two different teams. Report those players' full names.
+WITH 
+	above_1000_hits AS (
+	SELECT playerid, teamid, SUM(h)
+	FROM batting
+	GROUP BY playerid, teamid
+	HAVING SUM(h) >=1000
+	ORDER BY 1
+	)
+SELECT 
+	playerid,
+	COUNT(playerid) team_count,
+	 namefirst||' '||namelast name
+FROM above_1000_hits
+LEFT JOIN people
+USING(playerid)
+GROUP BY playerid, 3
+HAVING  COUNT(playerid) = 2
 
-10. Find all players who hit their career highest number of home runs in 2016. Consider only players who have played in the league for at least 10 years, and who hit at least one home run in 2016. Report the players' first and last names and the number of home runs they hit in 2016.
+/*10. Find all players who hit their career highest number of home runs in 2016. Consider only players who have 
+played in the league for at least 10 years, and who hit at least one home run in 2016. Report the players' first 
+and last names and the number of home runs they hit in 2016.
+*/
+WITH 
+	player_10y_plus AS(
+	SELECT
+		playerid,
+		yearid,
+		namefirst||' '||namelast name,
+		hr,
+		TO_DATE(debut, 'YYYY-MM-DD') debut,
+		TO_DATE(finalgame, 'YYYY-MM-DD') finalgame,
+		TO_DATE(finalgame, 'YYYY-MM-DD')-TO_DATE(debut, 'YYYY-MM-DD') career_length
+	FROM people p
+	INNER JOIN batting b
+	USING (playerid)
+	WHERE finalgame >= '2016-01-01'
+		AND TO_DATE(finalgame, 'YYYY-MM-DD')-TO_DATE(debut, 'YYYY-MM-DD')>=3650
+		AND b.hr >=1
+		AND b.yearid = 2016
+	ORDER BY career_length
+	), 
+	career_high_hr AS(
+	SELECT playerid,MAX(hr) hr
+	FROM batting
+	GROUP BY playerid
+	)
+SELECT 
+	name, 
+	yearid,
+	player_10y_plus.hr,
+	debut, 
+	finalgame, 
+	career_length
+FROM player_10y_plus 
+INNER JOIN career_high_hr 
+ON player_10y_plus.playerid = career_high_hr.playerid
+	AND player_10y_plus.hr = career_high_hr.hr
+ORDER BY 3
 
 After finishing the above questions, here are some open-ended questions to consider.
